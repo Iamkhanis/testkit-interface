@@ -945,12 +945,14 @@ export default function App() {
 
   // Reset transient copy feedback in the same event that switches workflows.
   // Avoid cascading state updates from an effect watching command.
+  // #20 — announce which command is now active so screen-reader users hear the
+  // switch instead of relying on the button label or a silent input reset.
   const changeCommand = (next: CommandName) => {
     setCommand(next);
     setCopied(false);
     setCopiedWithComments(false);
     setCopiedAsScript(false);
-    setAnnouncement("");
+    setAnnouncement(`Active command: ${next}`);
   };
 
   const options = useMemo<CommandOptions>(
@@ -974,6 +976,15 @@ export default function App() {
 
   useEffect(() => {
     generatedRef.current = generated;
+  }, [generated]);
+
+  // #23 — the "Copied" labels only describe the command that was actually
+  // copied. Any change to the generated command means an input changed, so drop
+  // the stale feedback instead of leaving the buttons claiming "Copied".
+  useEffect(() => {
+    setCopied(false);
+    setCopiedWithComments(false);
+    setCopiedAsScript(false);
   }, [generated]);
 
 

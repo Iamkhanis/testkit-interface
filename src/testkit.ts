@@ -112,7 +112,14 @@ export const modules: ReadonlyArray<{
   { name: "ttl", description: "Storage lifetime and expiry simulation", category: "Storage" },
 ];
 
-const quote = (value: string) => (value.includes(" ") ? `"${value}"` : value);
+// #21 — quote any value containing whitespace (spaces, tabs, line breaks) so
+// the generated command keeps it intact as a single argument.
+const quote = (value: string) => (/\s/.test(value) ? `"${value}"` : value);
+
+// #22 — a project path made up only of whitespace is treated as empty so the
+// builder, summaries, defaults, comparison, and validation all fall back the
+// same way.
+const hasPath = (value: string) => value.trim().length > 0;
 
 const getOptionalArgOrder = (options: CommandOptions): OptionalArgKey[] => {
   if (options.command === "coverage") {
@@ -173,7 +180,7 @@ export function buildCommand(options: CommandOptions): string {
     }
     return [
       "soroban-testkit coverage",
-      options.path && quote(options.path),
+      hasPath(options.path) ? quote(options.path) : "",
       ...buildOptionalArgs(options),
     ]
       .filter(Boolean)
@@ -184,7 +191,7 @@ export function buildCommand(options: CommandOptions): string {
     return [
       "soroban-testkit limits",
       "--contract",
-      quote(options.path || fallbackValues.limitsContract),
+      quote(hasPath(options.path) ? options.path : fallbackValues.limitsContract),
       "--fn",
       options.fn || fallbackValues.limitsFunction,
       "--ramp",
@@ -194,7 +201,7 @@ export function buildCommand(options: CommandOptions): string {
 
   return [
     "soroban-testkit audit",
-    quote(options.path || fallbackValues.auditPath),
+    quote(hasPath(options.path) ? options.path : fallbackValues.auditPath),
     ...buildOptionalArgs(options),
   ]
     .filter(Boolean)
@@ -211,7 +218,7 @@ export function formatCommandLine(
 
   if (options.command === "coverage") {
     const args: string[] = [];
-    if (options.path) args.push(quote(options.path));
+    if (hasPath(options.path)) args.push(quote(options.path));
     args.push(...buildOptionalArgs(options));
 
     if (args.length === 0) {
@@ -225,7 +232,7 @@ export function formatCommandLine(
   }
 
   if (options.command === "limits") {
-    const contractPath = quote(options.path || fallbackValues.limitsContract);
+    const contractPath = quote(hasPath(options.path) ? options.path : fallbackValues.limitsContract);
     const fn = options.fn || fallbackValues.limitsFunction;
     const ramp = options.ramp || fallbackValues.limitsRamp;
 
@@ -238,7 +245,7 @@ export function formatCommandLine(
   }
 
   // audit
-  const auditPath = quote(options.path || fallbackValues.auditPath);
+  const auditPath = quote(hasPath(options.path) ? options.path : fallbackValues.auditPath);
   const auditArgs = buildOptionalArgs(options).map((arg) => `  ${arg}`);
 
   return [
@@ -255,7 +262,7 @@ export function formatCommandWithComments(options: CommandOptions): string {
   if (options.command === "coverage") {
     comments.push("# Generate contract-test coverage through cargo-llvm-cov");
     comments.push("soroban-testkit coverage \\");
-    if (options.path) {
+    if (hasPath(options.path)) {
       comments.push(`  ${quote(options.path)} \\  # Project or contract path`);
     }
     const optionalArgs = buildOptionalArgs(options);
@@ -269,12 +276,12 @@ export function formatCommandWithComments(options: CommandOptions): string {
         comments.push(`  ${arg}${isLast ? "" : " \\"}`);
       }
     });
-    if (optionalArgs.length === 0 && options.path) {
+    if (optionalArgs.length === 0 && hasPath(options.path)) {
       comments[comments.length - 1] = comments[comments.length - 1].replace(" \\", "");
     }
   } else if (options.command === "limits") {
     comments.push("# Ramp a contract input to find its practical resource ceiling");
-    const contractPath = quote(options.path || fallbackValues.limitsContract);
+    const contractPath = quote(hasPath(options.path) ? options.path : fallbackValues.limitsContract);
     const fn = options.fn || fallbackValues.limitsFunction;
     const ramp = options.ramp || fallbackValues.limitsRamp;
     
@@ -284,7 +291,7 @@ export function formatCommandWithComments(options: CommandOptions): string {
     comments.push(`  --ramp ${ramp}  # Parameter to increase`);
   } else {
     comments.push("# Scan contract sources for auth, arithmetic, and TTL risks");
-    const auditPath = quote(options.path || fallbackValues.auditPath);
+    const auditPath = quote(hasPath(options.path) ? options.path : fallbackValues.auditPath);
     comments.push("soroban-testkit audit \\");
     
     const optionalArgs = buildOptionalArgs(options);
@@ -320,7 +327,7 @@ export function formatCommandAsScript(options: CommandOptions): string {
   
   if (options.command === "coverage") {
     lines.push("# Coverage workflow configuration");
-    lines.push(`PROJECT_PATH="${options.path || "."}"`);
+    lines.push(`PROJECT_PATH="${hasPath(options.path) ? options.path : "."}"`);
     lines.push(`FORMAT="${options.format}"`);
     lines.push(`OPEN_REPORT=${options.open ? "true" : "false"}`);
     lines.push("");
@@ -334,7 +341,7 @@ export function formatCommandAsScript(options: CommandOptions): string {
     });
   } else if (options.command === "limits") {
     lines.push("# Resource limits configuration");
-    lines.push(`CONTRACT="${options.path || fallbackValues.limitsContract}"`);
+    lines.push(`CONTRACT="${hasPath(options.path) ? options.path : fallbackValues.limitsContract}"`);
     lines.push(`FUNCTION="${options.fn || fallbackValues.limitsFunction}"`);
     lines.push(`RAMP_PARAM="${options.ramp || fallbackValues.limitsRamp}"`);
     lines.push("");
@@ -345,7 +352,7 @@ export function formatCommandAsScript(options: CommandOptions): string {
     lines.push('  --ramp "$RAMP_PARAM"');
   } else {
     lines.push("# Audit workflow configuration");
-    lines.push(`SOURCE_PATH="${options.path || fallbackValues.auditPath}"`);
+    lines.push(`SOURCE_PATH="${hasPath(options.path) ? options.path : fallbackValues.auditPath}"`);
     lines.push(`STRICT_MODE=${options.strict ? "true" : "false"}`);
     lines.push("");
     lines.push("# Run security audit");
@@ -442,7 +449,7 @@ export function validateConfiguration(data: unknown): ValidationResult {
   }
 
   // Warnings for missing optional fields
-  if (!options.path) {
+  if (typeof options.path !== "string" || !hasPath(options.path)) {
     warnings.push("path is not set; default values will be used");
   }
 
@@ -501,8 +508,8 @@ export function effectiveDefaults(options: CommandOptions): EffectiveDefaultRow[
         key: "path",
         label: "Contract artifact",
         input: options.path,
-        value: options.path || fallbackValues.limitsContract,
-        applied: options.path === "",
+        value: hasPath(options.path) ? options.path : fallbackValues.limitsContract,
+        applied: !hasPath(options.path),
       },
       {
         key: "fn",
@@ -527,8 +534,8 @@ export function effectiveDefaults(options: CommandOptions): EffectiveDefaultRow[
         key: "path",
         label: "Project path",
         input: options.path,
-        value: options.path || fallbackValues.auditPath,
-        applied: options.path === "",
+        value: hasPath(options.path) ? options.path : fallbackValues.auditPath,
+        applied: !hasPath(options.path),
       },
     ];
   }
@@ -550,7 +557,7 @@ export function summarizeConfiguration(
 ): SettingSummaryRow[] {
   if (options.command === "coverage") {
     return [
-      { label: "Project or contract path", value: options.path || "(omitted)" },
+      { label: "Project or contract path", value: hasPath(options.path) ? options.path : "(omitted)" },
       { label: "Report format", value: options.format },
       { label: "Open report when complete", value: options.open ? "On" : "Off" },
     ];
@@ -560,7 +567,7 @@ export function summarizeConfiguration(
     return [
       {
         label: "Contract artifact",
-        value: options.path || `${fallbackValues.limitsContract} (default)`,
+        value: hasPath(options.path) ? options.path : `${fallbackValues.limitsContract} (default)`,
       },
       {
         label: "Function",
@@ -576,7 +583,7 @@ export function summarizeConfiguration(
   return [
     {
       label: "Project path",
-      value: options.path || `${fallbackValues.auditPath} (default)`,
+      value: hasPath(options.path) ? options.path : `${fallbackValues.auditPath} (default)`,
     },
     { label: "Fail on warnings", value: options.strict ? "On" : "Off" },
   ];
@@ -614,7 +621,7 @@ export function compareConfigurations(
       key: "path",
       label: "Project or contract path",
       applicable: true,
-      value: (o) => o.path || "(empty)",
+      value: (o) => (hasPath(o.path) ? o.path : "(empty)"),
     },
     {
       key: "format",
