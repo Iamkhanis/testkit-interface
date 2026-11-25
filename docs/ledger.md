@@ -22,6 +22,23 @@ For the command-builder workflows this interface does support, see the
 - **Offline deterministic state**: All ledger time and sequence changes run in-memory with zero network RPC calls.
 - **TTL interaction**: Advancing the ledger sequence also ages persistent and temporary storage entries—pair with `ttl` checks when testing expiration.
 
+## Common pitfalls
+
+- **Expecting a CLI ledger command:** The `soroban-testkit` CLI runs
+  `coverage`, `limits`, and `audit`. Ledger time is controlled through
+  the Rust `TestEnv` API in tests, not a CLI subcommand.
+- **Confusing time with sequence:** `advance(Duration)` applies whole
+  seconds only. `advance_ledgers(n)` moves time by `n * interval`,
+  while time advances add `ceil(seconds / interval)` ledgers (the default
+  interval is 5 seconds). Do not assume one second means one ledger.
+- **Warping backwards or jumping too far:** `warp_to` rejects a timestamp
+  earlier than `now()`; large jumps can overflow timestamp/sequence
+  arithmetic. Use `try_warp_to` or `try_advance*` to handle
+  `TestkitError::Misuse` without a panic. Failed jumps do not move the clock.
+- **Forgetting TTL and reset semantics:** Advancing sequences can expire
+  storage entries. Validate their TTL after a jump; `clone_config()` and
+  `reset()` preserve configuration, not the current clock or contracts.
+
 ## Troubleshooting FAQ
 
 Each answer below is taken from the crate's ledger source (`crates/testkit/src/ledger/clock.rs`) and its documented behaviour. The source was read through the GitHub API; the examples have not been compiled or run here.

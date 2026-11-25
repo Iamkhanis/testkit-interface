@@ -503,7 +503,11 @@ footer { display: flex; justify-content: space-between; padding: 34px var(--page
 
 /* Issue #184: Large-text layout check for hero section */
 @media (min-width: 1200px) {
-  .hero h1 { font-size: 6rem; line-height: .98; }
+  /* Let hero grid columns shrink rather than clip oversized content (#325). */
+  .hero { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); }
+  .hero > * { min-width: 0; }
+  /* Reach the original 6rem heading by ~1400px without overflowing at 1200px. */
+  .hero h1 { font-size: clamp(4.5rem, 6.9vw, 6rem); line-height: .98; overflow-wrap: anywhere; }
   .hero .lede { font-size: 1.2rem; line-height: 1.8; }
   .hero .actions .button,
   .hero .repo-link {

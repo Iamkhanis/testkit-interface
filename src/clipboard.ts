@@ -6,6 +6,11 @@
  * Copy action never throws just because the browser exposes a partial API.
  */
 export async function copyToClipboard(text: string): Promise<void> {
+  // A blank command must not overwrite the clipboard or report success.
+  if (text.trim().length === 0) {
+    throw new Error("Cannot copy an empty command");
+  }
+
   if (typeof navigator.clipboard?.writeText === "function") {
     await navigator.clipboard.writeText(text);
     return;

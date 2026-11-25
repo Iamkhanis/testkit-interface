@@ -73,6 +73,24 @@ browser and screen reader pair per platform.
 | 12 | Module cards lacked structured heading levels for cards and their workflow groups (#105). | Fixed: established h2 -> h3 -> h4 hierarchy and region grouping. | `src/App.tsx` |
 | 13 | Active command parameters lacked a screen-reader accessible summary (#106). | Fixed: added polite live region and focusable summary card. | `src/App.tsx` |
 | 14 | Interactive controls and cards lost clear boundaries in high-contrast/forced-colors modes (#107). | Fixed: added forced-colors and prefers-contrast: more styling. | `src/styles.css` |
+
+## Command history keyboard audit (#343)
+
+Code-inspection finding (manual screen-reader/screenshot verification pending):
+the `.command-history .history-toggle` persists when the expanded
+`.command-history-list[role="log"]` closes, but Escape previously did
+nothing when focused on a command in the list. Also, activating
+`Clear history` removed the focused Clear button together with the entire
+`.command-history` section, potentially dropping focus to `<body>`.
+
+Escape now closes the panel and restores focus to the toggle; hiding the
+list with the toggle retains focus there. Clearing first moves focus to the
+nearby persistent generated-command Copy button before unmounting history.
+See `src/App.test.tsx` and `tests/visual/accessibility.spec.ts` for
+regression coverage. Manual audit: create a history entry, open with Enter,
+focus a history Copy button, press Escape, then reopen and activate Clear.
+Confirm a visible focus indicator on the toggle after Escape and on Copy
+after clearing. Relevant WCAG 2.1 AA criteria: 2.1.1 and 2.4.3.
 | 15 | The coverage and limits preflight toggle buttons (`.guide-card .guide-header .preflight-toggle`) were about 24px tall on mobile, below the project's 44px minimum touch target (#260, WCAG 2.1 AA 2.5.5 advisory size). | Fixed: `min-height: var(--tap-target-min)` with 44px token and padded height at 768px and below. | `src/App.tsx`, `src/styles.css` |
 
 ## Coverage report formats (#324)

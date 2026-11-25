@@ -207,6 +207,29 @@ test.describe("focus return (#111)", () => {
   }
 });
 
+test.describe("command history keyboard dismissal (#343)", () => {
+  test("Escape and clearing history restore focus to persistent controls", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Copy", exact: true }).click();
+    const toggle = page.getByRole("button", { name: "Show (1)" });
+    await expect(toggle).toBeVisible();
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    const copyHistory = page.getByRole("button", { name: "Copy history command 1" });
+    await copyHistory.focus();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("log")).toHaveCount(0);
+    await expect(toggle).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    const clear = page.getByRole("button", { name: "Clear history" });
+    await clear.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Command history" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Copied" })).toBeFocused();
+  });
+});
 test.describe("Coverage report format semantics (#324)", () => {
   test("announces the report-format radio group and checked state", async ({ page }) => {
     await page.goto("/");

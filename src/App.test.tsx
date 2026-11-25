@@ -1666,6 +1666,62 @@ describe("Session-only command history UI", () => {
   });
 });
 
+describe("Command history keyboard focus (#343)", () => {
+  const originalClipboard = navigator.clipboard;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      configurable: true,
+    });
+    vi.restoreAllMocks();
+  });
+
+  async function populateHistory() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy", exact: true }));
+    return screen.findByRole("button", { name: "Show (1)" });
+  }
+
+  it("retains focus on the toggle when hiding history", async () => {
+    const toggle = await populateHistory();
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("log")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes history on Escape and returns focus from its Copy item to the toggle", async () => {
+    const toggle = await populateHistory();
+    fireEvent.click(toggle);
+    const historyCopy = within(screen.getByRole("log")).getByRole("button", {
+      name: "Copy history command 1",
+    });
+    historyCopy.focus();
+    fireEvent.keyDown(historyCopy, { key: "Escape" });
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+  });
+
+  it("focuses the persistent Copy action before clearing history", async () => {
+    const toggle = await populateHistory();
+    fireEvent.click(toggle);
+    const clear = screen.getByRole("button", { name: "Clear history" });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(screen.queryByRole("heading", { name: "Command history" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copied" })).toHaveFocus();
+  });
+});
+
 // Issue #100 — inline help text associated with each form field
 describe("Inline help text for form fields (#100)", () => {
   it("associates help text with the path input via aria-describedby", () => {

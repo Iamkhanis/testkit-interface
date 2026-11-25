@@ -92,6 +92,34 @@ test.describe("responsive layout enhancements", () => {
   });
 });
 
+test.describe("large-text hero overflow (#325)", () => {
+  for (const width of [1200, 1280, 1400, 1920]) {
+    test(`hero remains within its bounds at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      const report = await page.locator("#top").evaluate((hero) => {
+        const heading = hero.querySelector("h1");
+        const terminal = hero.querySelector(".terminal");
+        if (!heading || !terminal) throw new Error("Hero elements missing");
+        const container = hero.getBoundingClientRect();
+        const panel = terminal.getBoundingClientRect();
+        return {
+          textWidth: heading.scrollWidth,
+          availableWidth: heading.clientWidth,
+          left: panel.left, right: panel.right,
+          boundaryLeft: container.left, boundaryRight: container.right,
+          pageWidth: document.documentElement.scrollWidth,
+          viewportWidth: document.documentElement.clientWidth,
+        };
+      });
+      expect(report.textWidth).toBeLessThanOrEqual(report.availableWidth + 2);
+      expect(report.left).toBeGreaterThanOrEqual(report.boundaryLeft - 1);
+      expect(report.right).toBeLessThanOrEqual(report.boundaryRight + 1);
+      expect(report.pageWidth).toBeLessThanOrEqual(report.viewportWidth);
+    });
+  }
+});
+
 test.describe("landscape phone command form overflow (#333)", () => {
   for (const viewport of [
     { width: 541, height: 600 },
