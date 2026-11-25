@@ -92,8 +92,7 @@ describe("formatCommandLine", () => {
       [
         "soroban-testkit coverage \\",
         "  ./contracts/escrow \\",
-        "  --format lcov \\",
-        "  --open",
+        "  --format lcov",
       ].join("\n"),
     );
   });
@@ -586,5 +585,39 @@ describe("formatCommandAsScript", () => {
     expect(script).toContain('CONTRACT="target/wasm32v1-none/release/contract.wasm"');
     expect(script).toContain('FUNCTION="batch_payout"');
     expect(script).toContain('RAMP_PARAM="recipients"');
+  });
+});
+
+// Issue #30: paths that begin with a command-line option prefix
+describe("paths beginning with an option prefix", () => {
+  const base: CommandOptions = { command: "coverage", path: "", format: "html", open: false, fn: "", ramp: "", strict: false };
+
+  it("anchors a dash-prefixed coverage path so it is not parsed as a flag", () => {
+    expect(buildCommand({ ...base, path: "--format" }))
+      .toBe("soroban-testkit coverage ./--format --format html");
+  });
+
+  it("anchors a dash-prefixed limits --contract path", () => {
+    expect(buildCommand({ ...base, command: "limits", path: "-contract.wasm" }))
+      .toBe("soroban-testkit limits --contract ./-contract.wasm --fn batch_payout --ramp recipients");
+  });
+
+  it("anchors a dash-prefixed audit path and keeps quoting for spaces", () => {
+    expect(buildCommand({ ...base, command: "audit", path: "-my src", strict: true }))
+      .toBe('soroban-testkit audit "./-my src" --strict');
+  });
+
+  it("anchors the path in multiline, commented, and script output", () => {
+    const options = { ...base, command: "audit" as const, path: "-src" };
+    expect(formatCommandLine(options, true)).toContain("  ./-src");
+    expect(formatCommandWithComments(options)).toContain("  ./-src  # Contract source directory");
+    expect(formatCommandAsScript(options)).toContain('SOURCE_PATH="./-src"');
+  });
+
+  it("leaves paths without a leading dash unchanged", () => {
+    expect(buildCommand({ ...base, path: "./my-contract" }))
+      .toBe("soroban-testkit coverage ./my-contract --format html");
+    expect(buildCommand({ ...base, command: "audit", path: "/abs/-src" }))
+      .toBe("soroban-testkit audit /abs/-src");
   });
 });
