@@ -1024,6 +1024,18 @@ export default function App() {
   }, []);
 
 
+  const handleReset = () => {
+    setPath(".");
+    setFormat("html");
+    setOpen(true);
+    setFn("batch_payout");
+    setRamp("recipients");
+    setStrict(true);
+    setShell("bash");
+    setCoverageOrder(defaultCoverageOrder);
+    setMultilineEditor(false);
+  };
+
   const toggleAdvancedEditor = () => {
     if (multilineEditor) {
       setMultilineEditor(false);
@@ -2911,11 +2923,16 @@ export default function App() {
             <code data-testid="command-output" ref={commandOutputRef} tabIndex={0}>
               {highlightCommand(generated)}
             </code>
-            <button ref={copyButtonRef} onClick={validateAndCopy}>{copied ? "Copied" : "Copy"}</button>
-            {/* #146 — download action for generated shell script */}
-            <button onClick={downloadCommand} className="button-download" aria-label="Download command as shell script">
-              Download
-            </button>
+            <div className="output-actions">
+              <button type="button" className="button-reset" onClick={handleReset}>
+                Reset
+              </button>
+              <button ref={copyButtonRef} onClick={validateAndCopy}>{copied ? "Copied" : "Copy"}</button>
+              {/* #146 — download action for generated shell script */}
+              <button onClick={downloadCommand} className="button-download" aria-label="Download command as shell script">
+                Download
+              </button>
+            </div>
           </div>
 
           {/* Issue #144 & #145: Additional copy options */}
@@ -4340,21 +4357,31 @@ soroban-testkit = "0.2.0"`}</code>
       </section>
 
       <footer>
-        <span>Built for the Stellar developer ecosystem.</span>
-        <span className="footer-links">
-          <a href={CORE_REPO_URL}>Soroban Testkit core repository</a>
-          {/* #119 — changelog link */}
-          <a href={`${CORE_REPO_URL}/releases`}>Changelog</a>
-          {/* #174 — release notes link */}
-          <button type="button" className="footer-a11y-link" onClick={() => setReleaseNotesOpen(true)}>
-            Release notes
-          </button>
-          {/* #116 — accessibility statement */}
-          <button type="button" className="footer-a11y-link" onClick={() => setA11yOpen(true)}>
-            Accessibility statement
-          </button>
-        </span>
-        <span>Apache-2.0</span>
+        <div className="footer-col">
+          <span className="footer-brand">Soroban Testkit</span>
+          <p>Built for the Stellar developer ecosystem.</p>
+        </div>
+        <div className="footer-col">
+          <span className="footer-heading">Workflows</span>
+          <div className="footer-links">
+            <a href="#commands">CLI Workbench</a>
+            <a href={CORE_REPO_URL}>Soroban Testkit core repository</a>
+            {/* #119 — changelog link */}
+            <a href={`${CORE_REPO_URL}/releases`}>Changelog</a>
+            {/* #174 — release notes link */}
+            <button type="button" className="footer-a11y-link" onClick={() => setReleaseNotesOpen(true)}>
+              Release notes
+            </button>
+            {/* #116 — accessibility statement */}
+            <button type="button" className="footer-a11y-link" onClick={() => setA11yOpen(true)}>
+              Accessibility statement
+            </button>
+          </div>
+        </div>
+        <div className="footer-col footer-meta">
+          <span>Apache-2.0</span>
+          <span>Deterministic contract testing</span>
+        </div>
       </footer>
 
       {/* #174 — release notes dialog */}
