@@ -12,6 +12,34 @@ describe("copyToClipboard", () => {
     vi.restoreAllMocks();
   });
 
+  it("rejects empty and whitespace commands without writing to the Clipboard API", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    await expect(copyToClipboard("")).rejects.toThrow("Cannot copy an empty command");
+    await expect(copyToClipboard("  \n\t")).rejects.toThrow("Cannot copy an empty command");
+
+    expect(writeText).not.toHaveBeenCalled();
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
+  it("rejects a blank command without invoking the legacy fallback", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = execCommand;
+
+    await expect(copyToClipboard("  ")).rejects.toThrow("Cannot copy an empty command");
+
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
   it("uses the Clipboard API when the browser supports it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

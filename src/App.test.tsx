@@ -82,6 +82,52 @@ describe("App command copy", () => {
   });
 });
 
+describe("Copy comments preference (#339)", () => {
+  const originalClipboard = navigator.clipboard;
+  const preferenceKey = "testkit.copy-with-comments";
+
+  beforeEach(() => {
+    localStorage.removeItem(preferenceKey);
+  });
+
+  afterEach(() => {
+    localStorage.removeItem(preferenceKey);
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      configurable: true,
+    });
+    vi.restoreAllMocks();
+  });
+
+  it("remembers the choice to copy without comments and copies the plain command", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    const { unmount } = render(<App />);
+    const preference = screen.getByRole("checkbox", { name: "Include explanatory comments" });
+    expect(preference).toBeChecked();
+
+    fireEvent.click(preference);
+    expect(localStorage.getItem(preferenceKey)).toBe("false");
+    unmount();
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: "Include explanatory comments" })).not.toBeChecked(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy command without explanatory comments" }),
+    );
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("soroban-testkit coverage . --format html --open"),
+    );
+  });
+});
+
 describe("Coverage option combinations component tests (#200)", () => {
   const originalClipboard = navigator.clipboard;
 
@@ -96,13 +142,20 @@ describe("Coverage option combinations component tests (#200)", () => {
   it("updates format radio options (html, lcov, text)", () => {
     render(<App />);
 
+    const openReport = screen.getByRole("checkbox", { name: /open report when complete/i });
     fireEvent.click(screen.getByRole("radio", { name: "lcov" }));
-    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage . --format lcov --open");
+    expect(openReport).toBeDisabled();
+    expect(openReport).not.toBeChecked();
+    expect(openReport).toHaveAccessibleDescription(/available for html reports only/i);
+    expect(screen.getByTestId("command-output")).toHaveTextContent(/^soroban-testkit coverage \. --format lcov$/);
 
     fireEvent.click(screen.getByRole("radio", { name: "text" }));
-    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage . --format text --open");
+    expect(openReport).toBeDisabled();
+    expect(screen.getByTestId("command-output")).toHaveTextContent(/^soroban-testkit coverage \. --format text$/);
 
     fireEvent.click(screen.getByRole("radio", { name: "html" }));
+    expect(openReport).toBeEnabled();
+    expect(openReport).toBeChecked();
     expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage . --format html --open");
   });
 
@@ -119,7 +172,7 @@ describe("Coverage option combinations component tests (#200)", () => {
     expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage . --format html --open");
   });
 
-  it("quotes coverage path when containing spaces and copies combined command", async () => {
+  it("escapes coverage paths containing spaces and quotes in the generated and copied command", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
@@ -131,11 +184,11 @@ describe("Coverage option combinations component tests (#200)", () => {
     const pathInput = screen.getByRole("textbox", { name: "Project or contract path" });
     const openCheckbox = screen.getByLabelText(/open report when complete/i);
 
-    fireEvent.change(pathInput, { target: { value: "./contracts/my escrow" } });
+    fireEvent.change(pathInput, { target: { value: `./contracts/my "quoted" escrow's source` } });
     fireEvent.click(screen.getByRole("radio", { name: "lcov" }));
     fireEvent.click(openCheckbox); // unchecked
 
-    const expectedCommand = 'soroban-testkit coverage "./contracts/my escrow" --format lcov';
+    const expectedCommand = `soroban-testkit coverage './contracts/my "quoted" escrow'\\''s source' --format lcov`;
     expect(screen.getByTestId("command-output")).toHaveTextContent(expectedCommand);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
@@ -413,7 +466,8 @@ describe("Audit option combinations component tests (#198)", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "audit" }));
 
-    const strictCheckbox = screen.getByLabelText(/fail on warnings/i);
+    const strictCheckbox = screen.getByRole("checkbox", { name: "Fail on warnings (Audit strict mode)" });
+    expect(strictCheckbox).toHaveAccessibleDescription(/non-zero status/i);
     expect(strictCheckbox).toBeChecked();
     expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit audit . --strict");
 
@@ -533,33 +587,93 @@ describe("Workflow switching component tests (#201)", () => {
   });
 });
 
-describe("Active command announcement (#20)", () => {
-  it("announces the active command through a polite live region when the workflow changes", () => {
+describe("Reset behavior after customized inputs (#205)", () => {
+  it("resets coverage inputs back to defaults after customization", () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "limits" }));
-    const announcement = screen.getByText("Active command: limits");
-    expect(announcement).toHaveAttribute("aria-live", "polite");
+    const pathInput = screen.getByLabelText("Project or contract path") as HTMLInputElement;
+    const formatSelect = screen.getByLabelText(/report format/i) as HTMLSelectElement;
+    const openCheckbox = screen.getByLabelText(/open report when complete/i) as HTMLInputElement;
 
-    fireEvent.click(screen.getByRole("button", { name: "audit" }));
-    expect(screen.getByText("Active command: audit")).toHaveAttribute("aria-live", "polite");
-    expect(screen.queryByText("Active command: limits")).not.toBeInTheDocument();
+    fireEvent.change(pathInput, { target: { value: "./contracts/escrow" } });
+    fireEvent.change(formatSelect, { target: { value: "lcov" } });
+    fireEvent.click(openCheckbox); // uncheck
+
+    expect(screen.getByTestId("command-output")).toHaveTextContent(
+      "soroban-testkit coverage ./contracts/escrow --format lcov",
+    );
+
+    const resetButton = screen.getByRole("button", { name: "Reset" });
+    fireEvent.click(resetButton);
+
+    expect(pathInput.value).toBe(".");
+    expect(formatSelect.value).toBe("html");
+    expect(openCheckbox.checked).toBe(true);
+    expect(screen.getByTestId("command-output")).toHaveTextContent(
+      "soroban-testkit coverage . --format html --open",
+    );
   });
 
-  it("keeps every generated-command workflow intact while announcing the change", () => {
+  it("resets limits inputs back to defaults after customization", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "limits" }));
-    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit limits");
-    expect(screen.getByText("Active command: limits")).toBeInTheDocument();
+
+    const pathInput = screen.getByLabelText("Project or contract path") as HTMLInputElement;
+    const fnInput = screen.getByLabelText("Function") as HTMLInputElement;
+    const rampInput = screen.getByLabelText("Ramp parameter") as HTMLInputElement;
+
+    fireEvent.change(pathInput, { target: { value: "./custom.wasm" } });
+    fireEvent.change(fnInput, { target: { value: "custom_fn" } });
+    fireEvent.change(rampInput, { target: { value: "custom_ramp" } });
+
+    expect(screen.getByTestId("command-output")).toHaveTextContent(
+      "soroban-testkit limits --contract ./custom.wasm --fn custom_fn --ramp custom_ramp",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(pathInput.value).toBe(".");
+    expect(fnInput.value).toBe("batch_payout");
+    expect(rampInput.value).toBe("recipients");
+    expect(screen.getByTestId("command-output")).toHaveTextContent(
+      "soroban-testkit limits --contract . --fn batch_payout --ramp recipients",
+    );
+  });
+
+  it("resets audit inputs back to defaults after customization", () => {
+    render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "audit" }));
-    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit audit");
-    expect(screen.getByText("Active command: audit")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "coverage" }));
-    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage");
-    expect(screen.getByText("Active command: coverage")).toBeInTheDocument();
+    const pathInput = screen.getByLabelText("Project or contract path") as HTMLInputElement;
+    const strictCheckbox = screen.getByLabelText(/fail on warnings/i) as HTMLInputElement;
+
+    fireEvent.change(pathInput, { target: { value: "./contracts/vault" } });
+    fireEvent.click(strictCheckbox); // uncheck strict
+
+    expect(screen.getByTestId("command-output")).toHaveTextContent(
+      "soroban-testkit audit ./contracts/vault",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(pathInput.value).toBe(".");
+    expect(strictCheckbox.checked).toBe(true);
+    expect(screen.getByTestId("command-output")).toHaveTextContent(
+      "soroban-testkit audit . --strict",
+    );
+  });
+});
+
+describe("Responsive footer layout (#195)", () => {
+  it("renders wrapping footer columns with links and metadata", () => {
+    render(<App />);
+
+    expect(screen.getByText("Soroban Testkit", { selector: ".footer-brand" })).toBeInTheDocument();
+    expect(screen.getByText("Built for the Stellar developer ecosystem.")).toBeInTheDocument();
+    expect(screen.getByText("Apache-2.0")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "CLI Workbench" })).toBeInTheDocument();
   });
 });
 
@@ -620,6 +734,34 @@ describe("Module filter and empty-state layout (#188)", () => {
     fireEvent.click(clearButton);
 
     expect(screen.getByRole("heading", { name: "ttl", level: 3 })).toBeInTheDocument();
+  });
+
+  it("clears the search on Escape without blurring the input (#336)", () => {
+    render(<App />);
+    const filterInput = screen.getByLabelText("Search modules by name or description");
+    fireEvent.change(filterInput, { target: { value: "ledger" } });
+    expect(screen.queryByRole("heading", { name: "tokens", level: 3 })).not.toBeInTheDocument();
+
+    const notCancelled = fireEvent.keyDown(filterInput, { key: "Escape" });
+
+    expect(notCancelled).toBe(false);
+    expect(filterInput).toHaveValue("");
+    expect(filterInput).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "tokens", level: 3 })).toBeInTheDocument();
+  });
+
+  it("clears the category filter on Escape just like Reset filters (#336)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Security" }));
+    expect(screen.getByRole("button", { name: "Security" })).toHaveAttribute("aria-pressed", "true");
+
+    const filterInput = screen.getByLabelText("Search modules by name or description");
+    filterInput.focus();
+    fireEvent.keyDown(filterInput, { key: "Escape" });
+
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Security" })).toHaveAttribute("aria-pressed", "false");
+    expect(filterInput).toHaveFocus();
   });
 
   it("explains the empty state and returns focus to the search box on reset (#123)", () => {
@@ -833,7 +975,7 @@ describe("Audit command output shortcut (#266)", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "audit" }));
     fireEvent.click(screen.getByRole("button", { name: "Advanced arguments" }));
-    const editor = screen.getByRole("textbox", { name: "Advanced command arguments" });
+    const editor = screen.getByRole("textbox", { name: "Advanced command editor" });
     editor.focus();
 
     fireEvent.keyDown(editor, { key: "A", ctrlKey: true, shiftKey: true });
@@ -845,6 +987,52 @@ describe("Audit command output shortcut (#266)", () => {
     render(<App />);
 
     fireEvent.keyDown(document.body, { key: "a", ctrlKey: true });
+
+    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage");
+    expect(screen.getByRole("region", { name: "Generated command output" })).not.toHaveFocus();
+  });
+});
+
+describe("Limits command output shortcut (#261)", () => {
+  it("focuses the generated output panel with Ctrl+Shift+L in the limits tab", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "limits" }));
+
+    fireEvent.keyDown(document.body, { key: "L", ctrlKey: true, shiftKey: true });
+
+    const outputPanel = screen.getByRole("region", { name: "Generated command output" });
+    expect(outputPanel).toHaveAttribute("tabindex", "-1");
+    expect(outputPanel).toHaveFocus();
+    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit limits");
+  });
+
+  it("selects the limits workflow and focuses its output from another tab", () => {
+    render(<App />);
+    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage");
+
+    fireEvent.keyDown(document.body, { key: "L", metaKey: true, shiftKey: true });
+
+    expect(screen.getByRole("button", { name: "limits" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("region", { name: "Generated command output" })).toHaveFocus();
+    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit limits");
+    expect(screen.getByText("Jumped to the Limits command output panel")).toBeInTheDocument();
+  });
+
+  it("still works while focus is inside the ramp parameter field", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "limits" }));
+    const ramp = screen.getByRole("textbox", { name: "Ramp parameter" });
+    ramp.focus();
+
+    fireEvent.keyDown(ramp, { key: "L", ctrlKey: true, shiftKey: true });
+
+    expect(screen.getByRole("region", { name: "Generated command output" })).toHaveFocus();
+  });
+
+  it("does not jump on Ctrl+L without Shift", () => {
+    render(<App />);
+
+    fireEvent.keyDown(document.body, { key: "l", ctrlKey: true });
 
     expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage");
     expect(screen.getByRole("region", { name: "Generated command output" })).not.toHaveFocus();
@@ -979,6 +1167,25 @@ describe("Limits command reference (#92)", () => {
 });
 
 describe("Audit workflow prerequisites checklist (#91)", () => {
+  it("restores the viewport offset when the Audit checklist opens or closes", () => {
+    render(<App />);
+    const toggle = screen.getByRole("button", { name: "Show tutorial" });
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const scrollY = vi.spyOn(window, "scrollY", "get");
+    try {
+      scrollY.mockReturnValueOnce(500).mockReturnValueOnce(540);
+      fireEvent.click(toggle);
+      expect(scrollTo).toHaveBeenLastCalledWith({ top: 500, behavior: "instant" });
+
+      scrollY.mockReturnValueOnce(520).mockReturnValueOnce(480);
+      fireEvent.click(toggle);
+      expect(scrollTo).toHaveBeenLastCalledWith({ top: 520, behavior: "instant" });
+    } finally {
+      scrollY.mockRestore();
+      scrollTo.mockRestore();
+    }
+  });
+
   it("lets a user check off audit prerequisites, each with its own accessible name", () => {
     render(<App />);
 
@@ -1032,7 +1239,7 @@ describe("Command builder enhancements", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Advanced arguments" }));
 
-    const textarea = screen.getByLabelText("Advanced command arguments");
+    const textarea = screen.getByLabelText("Advanced command editor");
     fireEvent.change(textarea, {
       target: { value: "soroban-testkit audit ./src --strict" },
     });
@@ -1041,6 +1248,57 @@ describe("Command builder enhancements", () => {
     expect(screen.getByTestId("command-output")).toHaveTextContent(
       "soroban-testkit audit ./src --strict",
     );
+  });
+
+  it("exposes a labelled, described, and correctly collapsed multiline editor (#334)", () => {
+    render(<App />);
+    const toggle = screen.getByRole("button", { name: "Advanced arguments" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "advanced-command-panel");
+    expect(document.getElementById("advanced-command-panel")).toHaveAttribute("hidden");
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("advanced-command-panel")).not.toHaveAttribute("hidden");
+    const textarea = screen.getByRole("textbox", { name: "Advanced command editor" });
+    expect(textarea).toHaveAttribute("aria-describedby", "advanced-command-help");
+    expect(document.getElementById("advanced-command-help")).toHaveTextContent(/backslash/i);
+  });
+
+  it("announces an applied multiline command through the polite live region (#334)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Advanced arguments" }));
+    const textarea = screen.getByLabelText("Advanced command editor");
+    fireEvent.change(textarea, { target: { value: "soroban-testkit audit ./src --strict" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply multiline command" }));
+
+    expect(screen.getByText("Multiline command applied")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("counts the draft lines in the Limits editor without applying the draft", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "limits" }));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced arguments" }));
+
+    const editor = screen.getByRole("textbox", { name: "Advanced command editor" });
+    const command = screen.getByTestId("command-output");
+    const originalCommand = command.textContent;
+    expect(editor).toHaveAccessibleDescription(/\d+ lines?/);
+
+    fireEvent.change(editor, { target: { value: "soroban-testkit limits\n--fn execute_equal\n" } });
+    expect(editor).toHaveAccessibleDescription("3 lines");
+    expect(screen.getByText("3 lines")).toBeVisible();
+    expect(command.textContent).toBe(originalCommand);
+
+    fireEvent.change(editor, { target: { value: "soroban-testkit limits" } });
+    expect(editor).toHaveAccessibleDescription("1 line");
+
+    fireEvent.change(editor, { target: { value: "" } });
+    expect(editor).toHaveAccessibleDescription("0 lines");
+    expect(screen.getByText("0 lines")).toBeVisible();
+    expect(command.textContent).toBe(originalCommand);
   });
 });
 
@@ -1695,6 +1953,62 @@ describe("Session-only command history UI", () => {
   });
 });
 
+describe("Command history keyboard focus (#343)", () => {
+  const originalClipboard = navigator.clipboard;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      configurable: true,
+    });
+    vi.restoreAllMocks();
+  });
+
+  async function populateHistory() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy", exact: true }));
+    return screen.findByRole("button", { name: "Show (1)" });
+  }
+
+  it("retains focus on the toggle when hiding history", async () => {
+    const toggle = await populateHistory();
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("log")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes history on Escape and returns focus from its Copy item to the toggle", async () => {
+    const toggle = await populateHistory();
+    fireEvent.click(toggle);
+    const historyCopy = within(screen.getByRole("log")).getByRole("button", {
+      name: "Copy history command 1",
+    });
+    historyCopy.focus();
+    fireEvent.keyDown(historyCopy, { key: "Escape" });
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+  });
+
+  it("focuses the persistent Copy action before clearing history", async () => {
+    const toggle = await populateHistory();
+    fireEvent.click(toggle);
+    const clear = screen.getByRole("button", { name: "Clear history" });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(screen.queryByRole("heading", { name: "Command history" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copied" })).toHaveFocus();
+  });
+});
+
 // Issue #100 — inline help text associated with each form field
 describe("Inline help text for form fields (#100)", () => {
   it("associates help text with the path input via aria-describedby", () => {
@@ -1799,10 +2113,34 @@ describe("Validation errors announced via live region (#102)", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Copy$/ }));
 
     await waitFor(() => {
-      const alertRegion = document.querySelector('[aria-live="assertive"]');
-      expect(alertRegion?.textContent).toMatch(/path.*required/i);
+      const alertRegion = screen.getByRole("alert");
+      expect(alertRegion).toHaveAttribute("aria-live", "assertive");
+      expect(alertRegion).toHaveClass("sr-only");
+      expect(alertRegion).toHaveTextContent(/path.*required/i);
     });
     // Clipboard should not be called when validation fails
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("explains the empty Coverage path requirement with a concrete example (#264)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<App />);
+    const pathInput = screen.getByRole("textbox", { name: /project or contract path/i });
+    fireEvent.change(pathInput, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Copy$/ }));
+
+    await waitFor(() => {
+      expect(document.querySelector('[aria-live="assertive"]')?.textContent).toBe(
+        "Project or contract path is required for Coverage. Enter a Cargo workspace directory such as . or ./contracts/token before copying the command.",
+      );
+    });
+    expect(pathInput).toHaveAttribute("aria-invalid", "true");
+    expect(pathInput).toHaveFocus();
     expect(writeText).not.toHaveBeenCalled();
   });
 
@@ -2674,7 +3012,7 @@ describe("Accessible report format markup (#324)", () => {
     fireEvent.click(within(group).getByRole("radio", { name: "lcov" }));
     expect(within(group).getByRole("radio", { name: "lcov" })).toBeChecked();
     expect(within(group).getByRole("radio", { name: "html" })).not.toBeChecked();
-    expect(screen.getByText("soroban-testkit coverage . --format lcov --open")).toBeInTheDocument();
+    expect(screen.getByText("soroban-testkit coverage . --format lcov")).toBeInTheDocument();
   });
 });
 
@@ -2695,5 +3033,71 @@ describe("Module-card disclosures (#337)", () => {
     fireEvent.click(expanded);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(panel).toHaveAttribute("hidden");
+  });
+});
+
+
+describe("Papytee assigned regressions (#350, #356)", () => {
+  it("shows an Audit-specific required path error when the source path is empty (#350)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "audit" }));
+
+    const pathInput = screen.getByRole("textbox", { name: "Project or contract path" });
+    fireEvent.change(pathInput, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Audit source path is required. Enter the contract source directory (for example, ./src).",
+    );
+  });
+
+  it("selects Coverage and focuses its generated output with Ctrl+Shift+C (#356)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "audit" }));
+
+    fireEvent.keyDown(document.body, { key: "C", ctrlKey: true, shiftKey: true });
+
+    expect(screen.getByRole("button", { name: "coverage" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("region", { name: "Generated command output" })).toHaveFocus();
+    expect(screen.getByTestId("command-output")).toHaveTextContent("soroban-testkit coverage");
+    expect(screen.getByText("Jumped to the Coverage command output panel")).toBeInTheDocument();
+  });
+});
+
+
+describe("Assigned command-builder regressions (#346, #348, #351)", () => {
+  it("emits --strict only when Audit strict mode is enabled (#346)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "audit" }));
+
+    const output = screen.getByTestId("command-output");
+    const strict = screen.getByRole("checkbox", { name: /fail on warnings/i });
+
+    expect(output).toHaveTextContent("--strict");
+    fireEvent.click(strict);
+    expect(output).not.toHaveTextContent("--strict");
+    expect(output).not.toHaveTextContent("--strict false");
+  });
+
+  it("shows an explanatory empty state when Command history is opened before any copy (#348)", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /show \(0\)/i }));
+
+    expect(
+      screen.getByText("No commands yet. Copy a generated command to add it to this session history."),
+    ).toBeVisible();
+  });
+
+  it("shows live character and line counts for the Audit multiline editor (#351)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "audit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced arguments" }));
+
+    const editor = screen.getByRole("textbox", { name: "Advanced command editor" });
+    fireEvent.change(editor, { target: { value: "soroban-testkit audit ./src\n--strict" } });
+
+    expect(screen.getByText("36 characters · 2 lines")).toBeVisible();
+    expect(editor).toHaveAttribute("aria-describedby", "audit-editor-count");
   });
 });
